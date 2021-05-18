@@ -42,3 +42,7 @@ operation. If you have an ubuntu system you can follow
 [this guide](https://www.r-bloggers.com/2013/07/for-faster-r-use-openblas-instead-better-than-atlas-trivial-to-switch-to-on-ubuntu/)
 to install OpenBLAS or to check that the library is installed.
 
+## Fundings
+
+This project is funded by (ERC-CoG-2014-648670)
+
