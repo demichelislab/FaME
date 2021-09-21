@@ -1,145 +1,26 @@
-# Installs or imports the required libraries
 librarian::shelf(
-  stringi,
-  parallel,
-  pipeR,
-  data.table,
-  dplyr,
-  tidyr,
-  purrr,
-  juliangehring/HighSpeedStats
+  parallel
 )
 
-# Moves to the root folder of the repo (all paths are relative to the repo)
+# Finds the path where to load the source file
+orig_path <- getwd()
+source_file <- head(grep('^-?-f(?:ile)=', commandArgs(trailingOnly = FALSE), value = TRUE, perl = TRUE), 1)
+if (length(source_file)) {
+  new_wd <- sub('^-[^=]+=(.*?)/?[^/]+$', '\\1', source_file)
+  print(paste('Changing directory to', new_wd))
+  setwd(new_wd)
+} else {
+  stop('Cannot determine source directory')
+}
 while (!dir.exists('code')) {
   setwd('..')
   if (getwd() == '/') {
     stop('Cannot find the root folder of the project')
   }
 }
-
-# Combines two binary matrices with a specific operator (defaults to '|')
-combine_mats <- function (mm1, mm2, FUN = `|`) {
-  res <- FUN(mm1, mm2)
-  storage.mode(res) <- 'integer'
-  res
-}
-
-matrix_to_vector <- function (mm) {
-  dim(mm) <- NULL
-  mm
-}
-
-# Construct a binary aberration matrix based on the aberration passed as input.
-#   Undefined samples are taken in consideration
-build_aberration_matrix <- function (dat, aberration_to_extract, na_aberration = 'nd') {
-  mm                       <- dat[, -1]
-  res                      <- mm == aberration_to_extract
-  res[mm == na_aberration] <- NA
-  rownames(res)            <- dat[[1]]
-  storage.mode(res)        <- 'integer'
-  res
-}
-
-# Computes the contingency tables for all the genes in the matrices passed in
-#   in input. Expected format of the matrices is genes on the rows and samples
-#   on the columns
-compute_counts <- function (mat1, mat2) {
-  are_matrices_identical <- identical(mat1, mat2)
-  mms <- list(
-    m1 = mat1[[1]],
-    m2 = mat2[[1]]
-  )
-  nns <- pipeline({
-    setNames(mms, c('row', 'col'))
-    map(rownames)
-  })
-  ll <- map(nns, length)
-  def_elems <- pipeline({
-    mms
-    map(~ {
-      xx               <- !is.na(.x)
-      storage.mode(xx) <- 'integer'
-      xx
-    })
-  })
-  mms_na <- pipeline({
-    mms
-    map2(
-      names(mms),
-      function(mm, nn) pipeline({
-        mm
-        replace_na(0L)
-        list(1L - .)
-        setNames(paste0(nn, c('', '_n')))
-        map(~ .x * def_elems[[nn]])
-      })
-    )
-    flatten
-  })
-  res <- with(
-    mms_na,
-    data.table(
-      g1   = rep(nns$row, ll$row),
-      g2   = rep(nns$col, each = ll$col),
-      n_11 = matrix_to_vector(tcrossprod(  m1,   m2)),
-      n_10 = matrix_to_vector(tcrossprod(  m1, m2_n)),
-      n_01 = matrix_to_vector(tcrossprod(m1_n,   m2)),
-      n_00 = matrix_to_vector(tcrossprod(m1_n, m2_n))
-    )
-  )
-  if (are_matrices_identical) {
-    res <- pipeline({
-      ll$row
-      diag
-      upper.tri
-      matrix_to_vector
-      (res[.])
-    })
-  }
-  res
-}
-
-# Runs the fisher tests on the count data
-run_tests <- function (dat, filter_freq = 0, fisher_fun = ultrafastfet) {
-  pipeline({
-    dat
-    mutate(
-      n_tot      = n_11 + n_10 + n_01 + n_00,
-      n_1        = (n_11 + n_10),
-      n_2        = (n_11 + n_01),
-      f_1        = n_1 / n_tot,
-      f_2        = n_2 / n_tot,
-      f_min      = pmin(f_1, f_2),
-      odds_ratio = (n_11 / n_01) / (n_10 / n_00),
-      p_value    = 1L,
-      fdr        = 1L
-    )
-    filter(f_min > filter_freq)
-    (dd ~ {
-      if (nrow(dd) > 0) {
-        pipeline({
-          dd
-          mutate(
-            p_value = fisher_fun(n_11, n_10, n_01, n_00),
-            fdr     = p.adjust(p_value, method = 'BH')
-          )
-          arrange(fdr, p_value, f_min)
-          select(
-            g1,
-            g2,
-            p_value,
-            fdr,
-            odds_ratio,
-            f_min,
-            everything()
-          )
-        })
-      } else dd
-    })
-    as.data.table
-  })
-}
+project_path <- getwd()
+setwd(orig_path)
+source(paste0(project_path, '/code/fame_core.R'))
 
 num_cores <- detectCores()
 
@@ -340,7 +221,6 @@ results_pancancer <- pipeline({
         a2 = .x[[2]]
       )
       select(a1, a2, everything())
-      # filter(odds_ratio < 1)
       as.data.table
       (? gc())
     })
